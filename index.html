@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>Androkumanda Ekran Yansıtma Alıcısı</title>
+    <!-- Google Cast Receiver SDK -->
+    <script src="//www.gstatic.com/cast/sdk/libs/caf_receiver/v3/cast_receiver_framework.js"></script>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background-color: #000;
+            overflow: hidden;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            width: 100vw;
+            height: 100vh;
+        }
+        #videoElement {
+            width: 100%;
+            height: 100%;
+            object-fit: contain; /* Görüntünün oranını bozmadan ekrana sığdırır */
+        }
+        #status {
+            position: absolute;
+            color: rgba(255, 255, 255, 0.7);
+            font-family: sans-serif;
+            font-size: 24px;
+            z-index: 10;
+        }
+    </style>
+</head>
+<body>
+    <div id="status">Androkumanda - Bağlantı Bekleniyor...</div>
+    <!-- WebRTC ile gelecek olan ekranın oynatılacağı yer burası -->
+    <video id="videoElement" autoplay playsinline></video>
+
+    <script>
+        const context = cast.framework.CastReceiverContext.getInstance();
+        const playerManager = context.getPlayerManager();
+        const statusElement = document.getElementById('status');
+        const videoElement = document.getElementById('videoElement');
+
+        // BİZİM UYGULAMAMIZA ÖZEL MESAJLAŞMA KANALI (NAMESPACE)
+        // Telefon ile TV sadece bu şifreli hat üzerinden haberleşecek (örn: WebRTC biletlerini verecekler)
+        const CUSTOM_CHANNEL = 'urn:x-cast:com.user.androkumanda.webrtc';
+        
+        let peerConnection = null;
+
+        // Custom mesaj dinleyici
+        context.addCustomMessageListener(CUSTOM_CHANNEL, async (customEvent) => {
+            const message = customEvent.data;
+            statusElement.style.display = 'none'; // İlk mesaj geldiğinde yazıyı gizle
+
+            // 1. Telefondan WebRTC "Offer (Teklif)" Geldiğinde
+            if (message.type === 'offer') {
+                peerConnection = new RTCPeerConnection({
+                    iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
+                });
+
+                // Telefondan gelen ekran yayın kanalı TV'de tetiklendiğinde:
+                peerConnection.ontrack = (event) => {
+                    videoElement.srcObject = event.streams[0];
+                };
+
+                // Kendi ICE adaylarımızı telefona gönder
+                peerConnection.onicecandidate = (event) => {
+                    if (event.candidate) {
+                        context.sendCustomMessage(CUSTOM_CHANNEL, customEvent.senderId, {
+                            type: 'candidate',
+                            candidate: event.candidate
+                        });
+                    }
+                };
+
+                // Telefonun teklifini kabul et
+                await peerConnection.setRemoteDescription(new RTCSessionDescription(message.offer));
+                const answer = await peerConnection.createAnswer();
+                await peerConnection.setLocalDescription(answer);
+
+                // TV'nin cevabını (Answer) telefona geri yolla
+                context.sendCustomMessage(CUSTOM_CHANNEL, customEvent.senderId, {
+                    type: 'answer',
+                    answer: answer
+                });
+            } 
+            // 2. Telefonda bağlantı adresleri (ICE Candidate) geldiğinde
+            else if (message.type === 'candidate' && peerConnection) {
+                await peerConnection.addIceCandidate(new RTCIceCandidate(message.candidate));
+            }
+            // 3. Telefon bağlantıyı kapattığında
+            else if (message.type === 'stop') {
+                if (peerConnection) {
+                    peerConnection.close();
+                    peerConnection = null;
+                }
+                videoElement.srcObject = null;
+                statusElement.style.display = 'block';
+                statusElement.innerText = "Yansıtma Durduruldu";
+            }
+        });
+
+        // TV'deki Cast Receiver'ı başlat (Hiçbir UI gösterme, sadece video kalacak)
+        const options = new cast.framework.CastReceiverOptions();
+        options.disableIdleTimeout = true; // Siyah ekranda beklerken TV kendini kapatmasın
+        context.start(options);
+    </script>
+</body>
+</html>
