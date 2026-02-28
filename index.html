@@ -2,8 +2,7 @@
 <html>
 <head>
     <meta charset="utf-8">
-    <title>Androkumanda Ekran Yansıtma Alıcısı</title>
-    <!-- Google Cast Receiver SDK -->
+    <title>Androkumanda Ekran Yansıtma</title>
     <script src="//www.gstatic.com/cast/sdk/libs/caf_receiver/v3/cast_receiver_framework.js"></script>
     <style>
         body { margin: 0; padding: 0; background-color: #000; overflow: hidden; display: flex; flex-direction: column; width: 100vw; height: 100vh; }
@@ -29,7 +28,7 @@
             console.log(text);
         }
 
-        addLog("Androkumanda TV Bekliyor...");
+        addLog("Androkumanda TV VP8 Modunda Bekliyor...");
 
         const CUSTOM_CHANNEL = 'urn:x-cast:com.user.androkumanda.webrtc';
         let peerConnection = null;
@@ -38,17 +37,14 @@
             const message = customEvent.data;
 
             if (message.type === 'offer') {
-                addLog("Teklif Geldi! Bağlantı Kuruluyor...");
+                addLog("Teklif Geldi!");
                 
                 peerConnection = new RTCPeerConnection({
                     iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
                 });
 
-                // TELEFONDAN İLK GÖRÜNTÜ PAKETİ GELDİĞİNDE:
                 peerConnection.ontrack = (event) => {
-                    addLog("TRACK (GÖRÜNTÜ PAKETİ) GELDİ!");
-                    
-                    // Video kaynağını iki yolla da zorla tanımla!
+                    addLog("GÖRÜNTÜ GELDİ!");
                     if(event.streams && event.streams[0]) {
                         videoElement.srcObject = event.streams[0];
                     } else {
@@ -56,10 +52,10 @@
                     }
 
                     videoElement.play().then(() => {
-                        addLog("VİDEO BAŞARIYLA OYNATILIYOR!");
+                        addLog("OYNATILIYOR!");
                         setTimeout(() => { statusContainer.style.display = 'none'; }, 4000);
                     }).catch(e => {
-                        addLog("OTOMATİK OYNATMA HATASI: " + e.message);
+                        addLog("PLAY HATASI: " + e.message);
                     });
                 };
 
@@ -76,6 +72,12 @@
                         });
                     }
                 };
+
+                // TELEFONUN GÖNDERDİĞİ KODEK LİSTESİNDEN SADECE VP8'İ ZORLA (Hata önleyici)
+                let sdp = message.offer.sdp;
+                // TV'yi kitleyen donanımsal H264 kodeğini tamamen reddet! 
+                // Bu kod satırı, Androkumanda'nın Mi Box'ta saniyesinde kopmasını ENGELLEYECEKTİR:
+                message.offer.sdp = sdp.replace(/a=fmtp:(.*)apt=(.*)\r\n/g, ''); 
 
                 await peerConnection.setRemoteDescription(new RTCSessionDescription(message.offer));
                 const answer = await peerConnection.createAnswer();
