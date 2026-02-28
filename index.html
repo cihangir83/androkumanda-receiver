@@ -6,46 +6,30 @@
     <!-- Google Cast Receiver SDK -->
     <script src="//www.gstatic.com/cast/sdk/libs/caf_receiver/v3/cast_receiver_framework.js"></script>
     <style>
-        body {
-            margin: 0;
-            padding: 0;
-            background-color: #000;
-            overflow: hidden;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            width: 100vw;
-            height: 100vh;
-            flex-direction: column;
-        }
-        #videoElement {
-            width: 100%;
-            height: 100%;
-            object-fit: contain;
-            position: absolute;
-        }
-        #status {
-            color: #FFDE21;
-            font-family: sans-serif;
-            font-size: 32px;
-            font-weight: bold;
-            z-index: 10;
-            background: rgba(0,0,0,0.8);
-            padding: 10px;
-            border-radius: 10px;
-            text-align: center;
-        }
+        body { margin: 0; padding: 0; background-color: #000; overflow: hidden; display: flex; flex-direction: column; width: 100vw; height: 100vh; }
+        #videoElement { width: 100%; height: 100%; object-fit: contain; position: absolute; z-index: 1; }
+        #status-container { position: absolute; z-index: 10; top: 10%; left: 10%; background: rgba(0,0,0,0.8); padding: 20px; border-radius: 10px; max-width: 80%; }
+        .log-line { color: #00FF00; font-family: monospace; font-size: 24px; font-weight: bold; margin-bottom: 5px; }
     </style>
 </head>
 <body>
-    <div id="status">Androkumanda TV Bekliyor...</div>
-    <!-- WebRTC ile gelecek olan ekranın oynatılacağı yer burası -->
+    <div id="status-container"></div>
     <video id="videoElement" autoplay playsinline muted></video>
 
     <script>
         const context = cast.framework.CastReceiverContext.getInstance();
-        const statusElement = document.getElementById('status');
+        const statusContainer = document.getElementById('status-container');
         const videoElement = document.getElementById('videoElement');
+
+        function addLog(text) {
+            const el = document.createElement('div');
+            el.className = 'log-line';
+            el.innerText = "> " + text;
+            statusContainer.appendChild(el);
+            console.log(text);
+        }
+
+        addLog("Androkumanda TV Bekliyor...");
 
         const CUSTOM_CHANNEL = 'urn:x-cast:com.user.androkumanda.webrtc';
         let peerConnection = null;
@@ -54,34 +38,41 @@
             const message = customEvent.data;
 
             if (message.type === 'offer') {
-                statusElement.innerText = "Teklif Geldi!";
+                addLog("Teklif Geldi! Bağlantı Kuruluyor...");
                 
                 peerConnection = new RTCPeerConnection({
                     iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
                 });
 
+                // TELEFONDAN İLK GÖRÜNTÜ PAKETİ GELDİĞİNDE:
                 peerConnection.ontrack = (event) => {
-                    statusElement.innerText = "Görüntü TV'ye İndi!";
-                    videoElement.srcObject = event.streams[0];
+                    addLog("TRACK (GÖRÜNTÜ PAKETİ) GELDİ!");
+                    
+                    // Video kaynağını iki yolla da zorla tanımla!
+                    if(event.streams && event.streams[0]) {
+                        videoElement.srcObject = event.streams[0];
+                    } else {
+                        videoElement.srcObject = new MediaStream([event.track]);
+                    }
+
                     videoElement.play().then(() => {
-                        statusElement.innerText = "VİDEO OYNATILIYOR!";
-                        setTimeout(() => { statusElement.style.display = 'none'; }, 3000);
+                        addLog("VİDEO BAŞARIYLA OYNATILIYOR!");
+                        setTimeout(() => { statusContainer.style.display = 'none'; }, 4000);
                     }).catch(e => {
-                        statusElement.innerText = "OYNATMA HATASI: " + e.message;
+                        addLog("OTOMATİK OYNATMA HATASI: " + e.message);
                     });
                 };
 
                 peerConnection.oniceconnectionstatechange = () => {
                     if (peerConnection) {
-                         statusElement.innerText = "AĞ DURUMU: " + peerConnection.iceConnectionState;
+                         addLog("AĞ DURUMU: " + peerConnection.iceConnectionState);
                     }
                 };
 
                 peerConnection.onicecandidate = (event) => {
                     if (event.candidate) {
                         context.sendCustomMessage(CUSTOM_CHANNEL, customEvent.senderId, {
-                            type: 'candidate',
-                            candidate: event.candidate
+                            type: 'candidate', candidate: event.candidate
                         });
                     }
                 };
@@ -91,21 +82,18 @@
                 await peerConnection.setLocalDescription(answer);
 
                 context.sendCustomMessage(CUSTOM_CHANNEL, customEvent.senderId, {
-                    type: 'answer',
-                    answer: answer
+                    type: 'answer', answer: answer
                 });
             } 
             else if (message.type === 'candidate' && peerConnection) {
                 await peerConnection.addIceCandidate(new RTCIceCandidate(message.candidate));
             }
             else if (message.type === 'stop') {
-                if (peerConnection) {
-                    peerConnection.close();
-                    peerConnection = null;
-                }
+                if (peerConnection) peerConnection.close();
+                peerConnection = null;
                 videoElement.srcObject = null;
-                statusElement.innerText = "Yansıtma Kapandı.";
-                statusElement.style.display = 'block';
+                addLog("Yansıtma Kapandı.");
+                statusContainer.style.display = 'block';
             }
         });
 
