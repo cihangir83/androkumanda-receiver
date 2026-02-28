@@ -28,7 +28,7 @@
             console.log(text);
         }
 
-        addLog("Androkumanda TV VP8 Modunda Bekliyor...");
+        addLog("Androkumanda TV Temiz İzlemede...");
 
         const CUSTOM_CHANNEL = 'urn:x-cast:com.user.androkumanda.webrtc';
         let peerConnection = null;
@@ -37,31 +37,27 @@
             const message = customEvent.data;
 
             if (message.type === 'offer') {
-                addLog("Teklif Geldi!");
+                addLog("Teklif Geldi! İzinsiz Bağlanıyor...");
                 
                 peerConnection = new RTCPeerConnection({
                     iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
                 });
 
                 peerConnection.ontrack = (event) => {
-                    addLog("GÖRÜNTÜ GELDİ!");
-                    if(event.streams && event.streams[0]) {
-                        videoElement.srcObject = event.streams[0];
-                    } else {
-                        videoElement.srcObject = new MediaStream([event.track]);
-                    }
+                    addLog("GÖRÜNTÜ KANALI AÇILDI!");
+                    videoElement.srcObject = event.streams[0];
 
                     videoElement.play().then(() => {
-                        addLog("OYNATILIYOR!");
+                        addLog("GÖRÜNTÜ OYNATILIYOR!");
                         setTimeout(() => { statusContainer.style.display = 'none'; }, 4000);
                     }).catch(e => {
-                        addLog("PLAY HATASI: " + e.message);
+                        addLog("OYNATMA İZİN HATASI: " + e.message);
                     });
                 };
 
                 peerConnection.oniceconnectionstatechange = () => {
                     if (peerConnection) {
-                         addLog("AĞ DURUMU: " + peerConnection.iceConnectionState);
+                         addLog("AĞ: " + peerConnection.iceConnectionState);
                     }
                 };
 
@@ -73,19 +69,17 @@
                     }
                 };
 
-                // TELEFONUN GÖNDERDİĞİ KODEK LİSTESİNDEN SADECE VP8'İ ZORLA (Hata önleyici)
-                let sdp = message.offer.sdp;
-                // TV'yi kitleyen donanımsal H264 kodeğini tamamen reddet! 
-                // Bu kod satırı, Androkumanda'nın Mi Box'ta saniyesinde kopmasını ENGELLEYECEKTİR:
-                message.offer.sdp = sdp.replace(/a=fmtp:(.*)apt=(.*)\r\n/g, ''); 
+                try {
+                    await peerConnection.setRemoteDescription(new RTCSessionDescription(message.offer));
+                    const answer = await peerConnection.createAnswer();
+                    await peerConnection.setLocalDescription(answer);
 
-                await peerConnection.setRemoteDescription(new RTCSessionDescription(message.offer));
-                const answer = await peerConnection.createAnswer();
-                await peerConnection.setLocalDescription(answer);
-
-                context.sendCustomMessage(CUSTOM_CHANNEL, customEvent.senderId, {
-                    type: 'answer', answer: answer
-                });
+                    context.sendCustomMessage(CUSTOM_CHANNEL, customEvent.senderId, {
+                        type: 'answer', answer: answer
+                    });
+                } catch(e) {
+                     addLog("KÖPRÜ HATASI: " + e.message);
+                }
             } 
             else if (message.type === 'candidate' && peerConnection) {
                 await peerConnection.addIceCandidate(new RTCIceCandidate(message.candidate));
@@ -94,7 +88,7 @@
                 if (peerConnection) peerConnection.close();
                 peerConnection = null;
                 videoElement.srcObject = null;
-                addLog("Yansıtma Kapandı.");
+                addLog("Bağlantı kesildi.");
                 statusContainer.style.display = 'block';
             }
         });
