@@ -6,7 +6,7 @@
     <script src="//www.gstatic.com/cast/sdk/libs/caf_receiver/v3/cast_receiver_framework.js"></script>
     <style>
         body { margin: 0; padding: 0; background-color: #000; overflow: hidden; display: flex; flex-direction: column; width: 100vw; height: 100vh; }
-        #videoElement { width: 100%; height: 100%; object-fit: contain; position: absolute; z-index: 1; display: none; }
+        #videoElement { width: 100%; height: 100%; object-fit: contain; position: absolute; z-index: 1; }
         #status-container { position: absolute; z-index: 10; top: 10%; left: 10%; background: rgba(0,0,0,0.8); padding: 20px; border-radius: 10px; max-width: 80%; }
         .log-line { color: #00FF00; font-family: monospace; font-size: 24px; font-weight: bold; margin-bottom: 5px; }
     </style>
@@ -25,55 +25,45 @@
             el.className = 'log-line';
             el.innerText = "> " + text;
             statusContainer.appendChild(el);
-            console.log(text);
         }
 
-        addLog("Androkumanda TV Eski-Yeni Akıllı Çözücü...");
+        addLog("Androkumanda SON NESİL TRACK OYNATICI...");
 
         const CUSTOM_CHANNEL = 'urn:x-cast:com.user.androkumanda.webrtc';
         let peerConnection = null;
+        let incomingStream = new MediaStream(); // BOŞ BİR HAVUZ (STREAM) OLUŞTURDUK
 
         context.addCustomMessageListener(CUSTOM_CHANNEL, async (customEvent) => {
             const message = customEvent.data;
 
             if (message.type === 'offer') {
-                addLog("Teklif Geldi...");
+                addLog("Teklif Geldi!");
                 
                 peerConnection = new RTCPeerConnection({
                     iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
                 });
 
-                // GÖRÜNTÜ YAKALAMA (Eski ve Yeni Cihazlar için Özel Çözüm)
-                // Android TV'deki siyah ekran sorununu "Stream'i bekleterek" çözer.
+                // TELEFONDAN TRACK (Parça) GELECEK, VİDEO HAVUZUNA EKLE!
                 peerConnection.ontrack = (event) => {
-                    addLog("TRACK GELDİ, EŞLEŞTİRİLİYOR!");
+                    addLog("TRACK (Boru Bağlandı!)");
                     
-                    // Eski API Desteği
-                    let stream = event.streams[0];
-                    if (!stream) {
-                        stream = new MediaStream();
-                        stream.addTrack(event.track);
+                    if (event.track.kind === 'video') {
+                        addLog("Video Sinyali Ekrana Düştü!");
+                        incomingStream.addTrack(event.track); // Gelen videoyu havuzumuza koy
+                        videoElement.srcObject = incomingStream; // O havuzu direkt videoya aktar
+                        
+                        videoElement.play().then(() => {
+                            addLog(">> EKRAN OYNATILIYOR <<");
+                            setTimeout(() => { statusContainer.style.display = 'none'; }, 3000);
+                        }).catch(e => {
+                            addLog("OTOMASYON HATASI: " + e.message);
+                        });
                     }
-
-                    if ('srcObject' in videoElement) {
-                        videoElement.srcObject = stream;
-                    } else {
-                        // Çok Eski Chrome sürümleri için
-                        videoElement.src = URL.createObjectURL(stream);
-                    }
-
-                    // Videoyu zorla başlat ve siyah ekranı gizle
-                    videoElement.onloadedmetadata = () => {
-                        addLog("METADATA YÜKLENDİ, OYNATILIYOR!");
-                        videoElement.style.display = 'block';
-                        videoElement.play().catch(e => addLog("ZORUNLU OYNAT HATASI: " + e.message));
-                        setTimeout(() => { statusContainer.style.display = 'none'; }, 2000);
-                    };
                 };
 
                 peerConnection.oniceconnectionstatechange = () => {
                     if (peerConnection) {
-                         addLog("AĞ DURUMU: " + peerConnection.iceConnectionState);
+                         addLog("AĞ: " + peerConnection.iceConnectionState);
                     }
                 };
 
@@ -85,17 +75,13 @@
                     }
                 };
 
-                try {
-                    await peerConnection.setRemoteDescription(new RTCSessionDescription(message.offer));
-                    const answer = await peerConnection.createAnswer();
-                    await peerConnection.setLocalDescription(answer);
+                await peerConnection.setRemoteDescription(new RTCSessionDescription(message.offer));
+                const answer = await peerConnection.createAnswer();
+                await peerConnection.setLocalDescription(answer);
 
-                    context.sendCustomMessage(CUSTOM_CHANNEL, customEvent.senderId, {
-                        type: 'answer', answer: answer
-                    });
-                } catch(e) {
-                     addLog("KÖPRÜ HATASI: " + e.message);
-                }
+                context.sendCustomMessage(CUSTOM_CHANNEL, customEvent.senderId, {
+                    type: 'answer', answer: answer
+                });
             } 
             else if (message.type === 'candidate' && peerConnection) {
                 await peerConnection.addIceCandidate(new RTCIceCandidate(message.candidate));
@@ -103,9 +89,9 @@
             else if (message.type === 'stop') {
                 if (peerConnection) peerConnection.close();
                 peerConnection = null;
+                incomingStream = new MediaStream(); // Havuzu boşalt
                 videoElement.srcObject = null;
-                videoElement.style.display = 'none';
-                addLog("Bağlantı Kesildi.");
+                addLog("Yansıtma Kapandı.");
                 statusContainer.style.display = 'block';
             }
         });
