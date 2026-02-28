@@ -34,7 +34,7 @@
 <body>
     <div id="status">Androkumanda - Bağlantı Bekleniyor...</div>
     <!-- WebRTC ile gelecek olan ekranın oynatılacağı yer burası -->
-    <video id="videoElement" autoplay playsinline></video>
+    <video id="videoElement" autoplay playsinline muted></video>
 
     <script>
         const context = cast.framework.CastReceiverContext.getInstance();
@@ -62,6 +62,8 @@
                 // Telefondan gelen ekran yayın kanalı TV'de tetiklendiğinde:
                 peerConnection.ontrack = (event) => {
                     videoElement.srcObject = event.streams[0];
+                    // Tarayıcının güvenliği nedeniyle videoyu zorla oynatmaya başlatıyoruz
+                    videoElement.play().catch(e => console.error("Video play hatası:", e));
                 };
 
                 // Kendi ICE adaylarımızı telefona gönder
