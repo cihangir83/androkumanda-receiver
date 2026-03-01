@@ -1,104 +1,138 @@
 <!DOCTYPE html>
 <html>
+
 <head>
     <meta charset="utf-8">
-    <title>Androkumanda Ekran Yansıtma</title>
+    <title>Androkumanda Ekran Yansıtma Alıcısı</title>
+    <!-- Google Cast Receiver SDK -->
     <script src="//www.gstatic.com/cast/sdk/libs/caf_receiver/v3/cast_receiver_framework.js"></script>
     <style>
-        body { margin: 0; padding: 0; background-color: #000; overflow: hidden; display: flex; flex-direction: column; width: 100vw; height: 100vh; }
-        #videoElement { width: 100%; height: 100%; object-fit: contain; position: absolute; z-index: 1; }
-        #status-container { position: absolute; z-index: 10; top: 10%; left: 10%; background: rgba(0,0,0,0.8); padding: 20px; border-radius: 10px; max-width: 80%; }
-        .log-line { color: #00FF00; font-family: monospace; font-size: 24px; font-weight: bold; margin-bottom: 5px; }
+        body {
+            margin: 0;
+            padding: 0;
+            background-color: #000;
+            overflow: hidden;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            width: 100vw;
+            height: 100vh;
+        }
+
+        #videoElement {
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+            /* Görüntünün oranını bozmadan ekrana sığdırır */
+        }
+
+        #status {
+            position: absolute;
+            color: rgba(255, 255, 255, 0.7);
+            font-family: sans-serif;
+            font-size: 24px;
+            z-index: 10;
+        }
     </style>
 </head>
+
 <body>
-    <div id="status-container"></div>
-    <video id="videoElement" autoplay playsinline muted></video>
+    <div id="status">Androkumanda - Bağlantı Bekleniyor...</div>
+    <!-- WebRTC ile gelecek olan ekranın oynatılacağı yer burası -->
+    <video id="videoElement" autoplay playsinline></video>
 
     <script>
         const context = cast.framework.CastReceiverContext.getInstance();
-        const statusContainer = document.getElementById('status-container');
+        const playerManager = context.getPlayerManager();
+        const statusElement = document.getElementById('status');
         const videoElement = document.getElementById('videoElement');
 
-        function addLog(text) {
-            const el = document.createElement('div');
-            el.className = 'log-line';
-            el.innerText = "> " + text;
-            statusContainer.appendChild(el);
-        }
-
-        addLog("Androkumanda SON NESİL TRACK OYNATICI...");
-
+        // BİZİM UYGULAMAMIZA ÖZEL MESAJLAŞMA KANALI (NAMESPACE)
         const CUSTOM_CHANNEL = 'urn:x-cast:com.user.androkumanda.webrtc';
-        let peerConnection = null;
-        let incomingStream = new MediaStream(); // BOŞ BİR HAVUZ (STREAM) OLUŞTURDUK
 
+        let peerConnection = null;
+
+        // Custom mesaj dinleyici
         context.addCustomMessageListener(CUSTOM_CHANNEL, async (customEvent) => {
             const message = customEvent.data;
+            statusElement.style.display = 'none';
 
+            // 1. Telefondan WebRTC "Offer (Teklif)" Geldiğinde
             if (message.type === 'offer') {
-                addLog("Teklif Geldi!");
-                
                 peerConnection = new RTCPeerConnection({
                     iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
                 });
 
-                // TELEFONDAN TRACK (Parça) GELECEK, VİDEO HAVUZUNA EKLE!
+                // Telefondan gelen ekran yayın kanalı TV'de tetiklendiğinde:
                 peerConnection.ontrack = (event) => {
-                    addLog("TRACK (Boru Bağlandı!)");
+                    statusElement.innerText = "Medya alınıyor...";
+                    statusElement.style.display = 'block';
                     
-                    if (event.track.kind === 'video') {
-                        addLog("Video Sinyali Ekrana Düştü!");
-                        incomingStream.addTrack(event.track); // Gelen videoyu havuzumuza koy
-                        videoElement.srcObject = incomingStream; // O havuzu direkt videoya aktar
-                        
-                        videoElement.play().then(() => {
-                            addLog(">> EKRAN OYNATILIYOR <<");
-                            setTimeout(() => { statusContainer.style.display = 'none'; }, 3000);
-                        }).catch(e => {
-                            addLog("OTOMASYON HATASI: " + e.message);
-                        });
+                    // Video ve ses track'lerini aynı stream üzerinden oynat
+                    if (!videoElement.srcObject) {
+                        videoElement.srcObject = event.streams[0] || new MediaStream();
                     }
+                    
+                    // Tarayıcı autoplay politikası: önce muted başlat, sonra sesi aç
+                    videoElement.muted = true;
+                    videoElement.play().then(() => {
+                        videoElement.muted = false; // Ses AÇ!
+                        statusElement.style.display = 'none';
+                    }).catch(e => {
+                        console.error("Video play hatası:", e);
+                        statusElement.innerText = "PLAY Hatası: " + e.message;
+                    });
                 };
 
                 peerConnection.oniceconnectionstatechange = () => {
                     if (peerConnection) {
-                         addLog("AĞ: " + peerConnection.iceConnectionState);
+                        statusElement.innerText = "ICE Durumu: " + peerConnection.iceConnectionState;
+                        statusElement.style.display = 'block';
                     }
                 };
 
+                // Kendi ICE adaylarımızı telefona gönder
                 peerConnection.onicecandidate = (event) => {
                     if (event.candidate) {
                         context.sendCustomMessage(CUSTOM_CHANNEL, customEvent.senderId, {
-                            type: 'candidate', candidate: event.candidate
+                            type: 'candidate',
+                            candidate: event.candidate
                         });
                     }
                 };
 
+                // Telefonun teklifini kabul et
                 await peerConnection.setRemoteDescription(new RTCSessionDescription(message.offer));
                 const answer = await peerConnection.createAnswer();
                 await peerConnection.setLocalDescription(answer);
 
+                // TV'nin cevabını (Answer) telefona geri yolla
                 context.sendCustomMessage(CUSTOM_CHANNEL, customEvent.senderId, {
-                    type: 'answer', answer: answer
+                    type: 'answer',
+                    answer: answer
                 });
-            } 
+            }
+            // 2. Telefonda bağlantı adresleri (ICE Candidate) geldiğinde
             else if (message.type === 'candidate' && peerConnection) {
                 await peerConnection.addIceCandidate(new RTCIceCandidate(message.candidate));
             }
+            // 3. Telefon bağlantıyı kapattığında
             else if (message.type === 'stop') {
-                if (peerConnection) peerConnection.close();
-                peerConnection = null;
-                incomingStream = new MediaStream(); // Havuzu boşalt
+                if (peerConnection) {
+                    peerConnection.close();
+                    peerConnection = null;
+                }
                 videoElement.srcObject = null;
-                addLog("Yansıtma Kapandı.");
-                statusContainer.style.display = 'block';
+                statusElement.style.display = 'block';
+                statusElement.innerText = "Yansıtma Durduruldu";
             }
         });
 
+        // TV'deki Cast Receiver'ı başlat
         const options = new cast.framework.CastReceiverOptions();
         options.disableIdleTimeout = true;
         context.start(options);
     </script>
 </body>
+
 </html>
